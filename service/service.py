@@ -28,8 +28,7 @@ s_detector_runner = bentoml.keras.get(BENTO_MODEL_TAG_S).to_runner()
 mag_runner = bentoml.keras.get(BENTO_MODEL_TAG_MAG).to_runner()
 dist_runner = bentoml.keras.get(BENTO_MODEL_TAG_DIST).to_runner()
 
-wave_arrival_detector = bentoml.Service("wave_arrival_detector", runners=[p_detector_runner, s_detector_runner])
-magnitude_distance_calculator = bentoml.Service("magnitude_location", runners=[mag_runner, dist_runner])
+wave_arrival_detector = bentoml.Service("wave_arrival_detector", runners=[p_detector_runner, s_detector_runner, mag_runner, dist_runner])
 
 # Setting pipeline data
 pipeline_p = Pipeline(settings.P_MODEL_PATH, settings.WINDOW_SIZE)
@@ -190,19 +189,19 @@ def predict(input_data: json) -> json:
 
     return json.dumps(output)
 
-@magnitude_distance_calculator.api(input=JSON(pydantic_model=InputDataInference), output=JSON(pydantic_model=OutputDataInference))
+@wave_arrival_detector.api(input=JSON(pydantic_model=InputDataMagLoc), output=JSON(pydantic_model=OutputDataMagLoc))
 def approx_earthquake_statistics(input_data: json) -> json:
-    x: np.ndarray = np.array(input_data.x)
+    x: np.ndarray = np.array([input_data.x])
     station_code: str = input_data.station_code
 
     # Magnitude
-    magnitude = mag_runner.predict.run(x)
+    magnitude = float(mag_runner.predict.run(x)[0][0])
 
     # Distance
-    distance = dist_runner.predict.run(x)
+    distance = float(dist_runner.predict.run(x)[0][0])
 
     # Depth
-    # depth = depth_runner.predict.run(x)
+    # depth = depth_runner.predict.run(x)[0]
 
     # Output
     output = {
