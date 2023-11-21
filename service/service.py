@@ -20,11 +20,16 @@ import settings
 
 BENTO_MODEL_TAG_P = "p_model:latest"
 BENTO_MODEL_TAG_S = "s_model:latest"
+BENTO_MODEL_TAG_MAG = "mag_model:latest"
+BENTO_MODEL_TAG_DIST = "dist_model:latest"
 
 p_detector_runner = bentoml.keras.get(BENTO_MODEL_TAG_P).to_runner()
 s_detector_runner = bentoml.keras.get(BENTO_MODEL_TAG_S).to_runner()
+mag_runner = bentoml.keras.get(BENTO_MODEL_TAG_MAG).to_runner()
+dist_runner = bentoml.keras.get(BENTO_MODEL_TAG_DIST).to_runner()
 
 wave_arrival_detector = bentoml.Service("wave_arrival_detector", runners=[p_detector_runner, s_detector_runner])
+magnitude_distance_calculator = bentoml.Service("magnitude_location", runners=[mag_runner, dist_runner])
 
 # Setting pipeline data
 pipeline_p = Pipeline(settings.P_MODEL_PATH, settings.WINDOW_SIZE)
@@ -34,10 +39,12 @@ pipelines: Dict[str, Pipeline] = dict()
 redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=settings.REDIS_DB_NUM)
 
 
+# RESTART JSON STRUCTURE
 class InputDataRegister(BaseModel):
     station_code: str
 
 
+# P/S WAVE DETECTION JSON STRUCTURE
 class InputDataInference(BaseModel):
     x: List[List[float | int]]
     begin_time: str  # should be like settings.DATETIME_FORMAT format
@@ -60,6 +67,15 @@ class OutputDataInference(BaseModel):
     s_arr_id: int
     new_s_event: bool
 
+# MAGNITUDE / LOCATION JSON STRUCTURE
+class InputDataMagLoc(BaseModel):
+    x: List[List[int | float]]
+    station_code: str
+
+class OutputDataMagLoc(BaseModel):
+    magnitude: float
+    distance: float
+    depth: float
 
 @wave_arrival_detector.api(input=JSON(pydantic_model=InputDataRegister), output=Text())
 def restart(input_data: json) -> str:
@@ -67,8 +83,10 @@ def restart(input_data: json) -> str:
     station_code: str = input_data.station_code
 
     # Insert station code
-    station_list: str = redis_client.get(settings.REDIS_STATION_LIST_NAME).decode("UTF8")
-    if station_list is None:
+    station_list: str
+    try:
+        station_list = redis_client.get(settings.REDIS_STATION_LIST_NAME).decode("UTF8")
+    except AssertionError:
         redis_client.set(settings.REDIS_STATION_LIST_NAME, "")
         station_list = ""
     station_list: Set = set(station_list.split("~"))
@@ -84,6 +102,7 @@ def restart(input_data: json) -> str:
 
     return "OK"
 
+# P WAVE DETECTION SERVICES
 @wave_arrival_detector.api(input=JSON(pydantic_model=InputDataInference), output=JSON(pydantic_model=OutputDataInference))
 def predict(input_data: json) -> json:
     # Unpack json
@@ -118,6 +137,7 @@ def predict(input_data: json) -> json:
             "s_arr_id": "",
             "new_s_event": False,
         }
+        return json.dumps(output)
 
     # ### P WAVE DETECTION ###
     # Make prediction
@@ -169,7 +189,31 @@ def predict(input_data: json) -> json:
 
     return json.dumps(output)
 
+@magnitude_distance_calculator.api(input=JSON(pydantic_model=InputDataInference), output=JSON(pydantic_model=OutputDataInference))
+def approx_earthquake_statistics(input_data: json) -> json:
+    x: np.ndarray = np.array(input_data.x)
+    station_code: str = input_data.station_code
 
+    # Magnitude
+    magnitude = mag_runner.predict.run(x)
+
+    # Distance
+    distance = dist_runner.predict.run(x)
+
+    # Depth
+    # depth = depth_runner.predict.run(x)
+
+    # Output
+    output = {
+        "magnitude": magnitude,
+        "distance": distance,
+        "depth": 0.0
+    }
+
+    return json.dumps(output)
+
+
+# AUXILIARY FUNCTIONS
 def examine_prediction(prediction: np.ndarray, station_code: str, begin_time: datetime, is_p: bool)\
         -> Tuple[bool, datetime, int, bool]:
     """Examine the prediction result, returns """
@@ -181,7 +225,7 @@ def examine_prediction(prediction: np.ndarray, station_code: str, begin_time: da
     arrival_time = begin_time + timedelta(seconds=arrival_pick_idx/settings.SAMPLING_RATE)
 
     # Check last earthquake occurrence, note that le = last earthquake
-    le_id, le_time, le_count = redis_client.get(f"{station_code}~data").decode("UTF-8").split("~")
+    le_id, le_time, le_count = redis_client.get(f"{station_code}~data_{'p' if is_p else 's'}").decode("UTF-8").split("~")
     le_id: int = int(le_id)
     le_time: datetime = datetime.strptime(le_time, settings.DATETIME_FORMAT)
     le_count: int = int(le_count)

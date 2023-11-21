@@ -19,3 +19,5 @@ def load_model_and_save_it_to_bento(model_path: Path, model_name : str) -> None:
 if __name__ == "__main__":
     load_model_and_save_it_to_bento(Path("service/models/model_p_2_1_best.h5"), "p_model")
     load_model_and_save_it_to_bento(Path("service/models/model_s_2_1_best.h5"), "s_model")
+    load_model_and_save_it_to_bento(Path("service/models/model_mag_1.h5"), "mag_model")
+    load_model_and_save_it_to_bento(Path("service/models/model_dist_1.h5"), "dist_model")
