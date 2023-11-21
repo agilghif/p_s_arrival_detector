@@ -76,6 +76,7 @@ class OutputDataMagLoc(BaseModel):
     magnitude: float
     distance: float
     depth: float
+    station_code: str
 
 @wave_arrival_detector.api(input=JSON(pydantic_model=InputDataRegister), output=Text())
 def restart(input_data: json) -> str:
@@ -207,7 +208,8 @@ def approx_earthquake_statistics(input_data: json) -> json:
     output = {
         "magnitude": magnitude,
         "distance": distance,
-        "depth": 0.0
+        "depth": 0.0,
+        "station_code": station_code
     }
 
     return json.dumps(output)
