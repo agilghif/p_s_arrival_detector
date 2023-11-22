@@ -4,6 +4,7 @@ digits.
 from datetime import datetime, timedelta
 from types import NoneType
 from typing import Optional, List, Tuple, Dict, Set
+import math
 
 import numpy as np
 import bentoml
@@ -16,67 +17,31 @@ from bentoml.io import JSON, Text
 from pydantic import BaseModel
 
 from pipeline import Pipeline, PipelineHasNotBeenInitializedException
+from pydantic_models import *
 import settings
 
+# Model tags
 BENTO_MODEL_TAG_P = "p_model:latest"
 BENTO_MODEL_TAG_S = "s_model:latest"
 BENTO_MODEL_TAG_MAG = "mag_model:latest"
 BENTO_MODEL_TAG_DIST = "dist_model:latest"
 
+# Runners
 p_detector_runner = bentoml.keras.get(BENTO_MODEL_TAG_P).to_runner()
 s_detector_runner = bentoml.keras.get(BENTO_MODEL_TAG_S).to_runner()
 mag_runner = bentoml.keras.get(BENTO_MODEL_TAG_MAG).to_runner()
 dist_runner = bentoml.keras.get(BENTO_MODEL_TAG_DIST).to_runner()
 
+# Service
 wave_arrival_detector = bentoml.Service("wave_arrival_detector", runners=[p_detector_runner, s_detector_runner, mag_runner, dist_runner])
 
-# Setting pipeline data
-pipeline_p = Pipeline(settings.P_MODEL_PATH, settings.WINDOW_SIZE)
+# Pipelines
 pipelines: Dict[str, Pipeline] = dict()
 
-# Redis client to access last earthquake info
+# Redis
 redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=settings.REDIS_DB_NUM)
 
-
-# RESTART JSON STRUCTURE
-class InputDataRegister(BaseModel):
-    station_code: str
-
-
-# P/S WAVE DETECTION JSON STRUCTURE
-class InputDataInference(BaseModel):
-    x: List[List[float | int]]
-    begin_time: str  # should be like settings.DATETIME_FORMAT format
-    station_code: str
-
-
-class OutputDataInference(BaseModel):
-    station_code: str
-    init_end: bool
-
-    # P wave data
-    p_arr: bool
-    p_arr_time: str
-    p_arr_id: int
-    new_p_event: bool
-
-    # S wave data
-    s_arr: bool
-    s_arr_time: str
-    s_arr_id: int
-    new_s_event: bool
-
-# MAGNITUDE / LOCATION JSON STRUCTURE
-class InputDataMagLoc(BaseModel):
-    x: List[List[int | float]]
-    station_code: str
-
-class OutputDataMagLoc(BaseModel):
-    magnitude: float
-    distance: float
-    depth: float
-    station_code: str
-
+# Restart service ------------------------------------------------------------------------------------------------------
 @wave_arrival_detector.api(input=JSON(pydantic_model=InputDataRegister), output=Text())
 def restart(input_data: json) -> str:
     # Get station code
@@ -102,7 +67,8 @@ def restart(input_data: json) -> str:
 
     return "OK"
 
-# P WAVE DETECTION SERVICES
+
+# Wave detection service -----------------------------------------------------------------------------------------------
 @wave_arrival_detector.api(input=JSON(pydantic_model=InputDataInference), output=JSON(pydantic_model=OutputDataInference))
 def predict(input_data: json) -> json:
     # Unpack json
@@ -148,7 +114,6 @@ def predict(input_data: json) -> json:
         examine_prediction(prediction_p, station_code, begin_time, is_p=True)
 
     # ### S WAVE DETECTION ###
-    # Make s prediction if p wave is detected
     s_arrival_detected: bool = False
     s_arrival_time: datetime = ""
     s_arr_id = None
@@ -189,6 +154,7 @@ def predict(input_data: json) -> json:
 
     return json.dumps(output)
 
+# Earthquake magnitude & distance service ------------------------------------------------------------------------------
 @wave_arrival_detector.api(input=JSON(pydantic_model=InputDataMagLoc), output=JSON(pydantic_model=OutputDataMagLoc))
 def approx_earthquake_statistics(input_data: json) -> json:
     x: np.ndarray = np.array([input_data.x])
@@ -214,7 +180,101 @@ def approx_earthquake_statistics(input_data: json) -> json:
     return json.dumps(output)
 
 
-# AUXILIARY FUNCTIONS
+@wave_arrival_detector.api(input=JSON(pydantic_model=InputDataMagLogRecalc),
+                           output=JSON(pydantic_model=OutputDataMagLocRecalc))
+def recalculate(input_data: json) -> json:
+    # Unpack json data
+    magnitudes: np.ndarray = np.array(input_data.magnitudes)
+    distances: np.ndarray = np.array(input_data.distances).astype(np.complex128)
+    station_latitudes: np.ndarray = np.array(input_data.station_latitudes).astype(np.complex128)
+    station_longitudes: np.ndarray = np.array(input_data.station_longitudes).astype(np.complex128)
+
+    # Cache values
+    station_latitudes_rad = station_latitudes / 180.0 * np.pi * 6371.0
+    station_longitudes_rad = station_longitudes / 180.0 * np.pi * 6371.0
+
+    # Recalculate magnitude
+    magnitude = np.mean(magnitudes)
+
+    # Recalculate location
+    # TODO : This formula is only for flat euclidian R2 space,
+    #  find another more precise formula for intersection of three spheres.
+    points = []
+    for i in range(len(station_latitudes)-1):
+        for j in range(i, len(station_latitudes)):
+            # distance between two stations
+            R = haversine(station_latitudes[i], station_longitudes[i], station_latitudes[j], station_longitudes[j])
+
+            # Radians position of two stations
+            xi = station_latitudes_rad[i]
+            yi = station_longitudes_rad[i]
+            xj = station_latitudes_rad[j]
+            yj = station_longitudes_rad[j]
+            ri = distances[i]
+            rj = distances[j]
+
+            x_delta = 0.5 * np.sqrt(
+                2 * (ri**2+rj**2)/R**2 - (ri**2-rj**2)**2/R**4 - 1
+            ) * (yj-yi)
+
+            y_delta = 0.5 * np.sqrt(
+                2 * (ri**2+rj**2)/R**2 - (ri**2-rj**2)**2/R**4 - 1
+            ) * (xi-xj)
+
+            x_base = 0.5*(xi+xj) + (ri**2-rj**2)/(2*R**2) * (xj-xi)
+
+            y_base = 0.5*(yi+yj) + (ri**2-rj**2)/(2*R**2) * (yj-yi)
+
+            x_1 = x_base + x_delta
+            x_2 = x_base - x_delta
+            y_1 = y_base + y_delta
+            y_2 = y_base - y_delta
+
+            points.append(np.array([[x_1, y_1], [x_2, y_2]]))
+
+    # Find points with the least variance
+    triplets = []
+    variances = []
+    for i in range(2):
+        for j in range(2):
+            for k in range(2):
+                # Generate triplets
+                triplet: np.ndarray = np.array([points[0][i], points[1][j], points[2][k]])
+                triplets.append(triplet)
+
+                # Calculate variance
+                variances.append(triplet.var(axis=0).sum())
+
+    # Select the triplets with the least variance value
+    variances = np.array(variances)
+    argmin = variances.argmin()
+
+    # Retrieve argmin-th triplet
+    triplet: np.ndarray = triplets[argmin]
+
+    # Project triplet into real number
+    triplet = triplet.real
+
+    # Take the average
+    ans = triplet.mean(axis=0)
+
+    # Convert result back to degree
+    ans *= 180 / np.pi / 6371.0
+
+    # Compose output
+    output = {
+        "station_codes": input_data.station_code,
+        "magnitude": float(magnitude),
+        "latitude": float(ans[0]),
+        "longitude": float(ans[1]),
+        "depth": 0.0
+    }
+
+    return json.dumps(output)
+
+
+
+# AUXILIARY FUNCTIONS --------------------------------------------------------------------------------------------------
 def examine_prediction(prediction: np.ndarray, station_code: str, begin_time: datetime, is_p: bool)\
         -> Tuple[bool, datetime, int, bool]:
     """Examine the prediction result, returns """
@@ -279,3 +339,24 @@ def mean_without_outliers(arr, threshold=3.0):
     mad = np.median(np.abs(arr - median))
     mask = np.abs(arr - median) / mad < threshold
     return np.mean(arr[mask])
+
+
+def haversine(lat1, lon1, lat2, lon2):
+
+    # Convert latitude and longitude from degrees to radians
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+
+    # Difference in coordinates
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+
+    # Haversine formula
+    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    distance = 6371.0 * c
+
+    return distance

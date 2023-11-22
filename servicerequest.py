@@ -10,12 +10,12 @@ import datetime
 
 SERVICE_URL_PREDICT = "http://localhost:3000/predict"
 SERVICE_URL_RESTART = "http://localhost:3000/restart"
-
+SERVICE_URL_MAG_LOC = "http://localhost:3000/approx_earthquake_statistics"
 
 def make_request_to_bento_service(service_url: str, input_array: np.ndarray, begin_time: datetime.datetime,
                                   station_code: str) -> str:
     input_data = {'x': input_array.tolist(),
-                  'begin_time': begin_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                  # 'begin_time': begin_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
                   'station_code': station_code}
     serialized_input_data = json.dumps(input_data)
     print("sending response...")
@@ -25,6 +25,7 @@ def make_request_to_bento_service(service_url: str, input_array: np.ndarray, beg
         headers={"content-type": "application/json"}
     )
     print("response sent...")
+    print(response.text)
     return json.loads(response.text)
 
 def decimate(earthquake):
@@ -50,7 +51,7 @@ def main():
             for i in range(0, len(earthquake), 500):
                 earthquake_data = earthquake[i:i+500]
                 response: dict = json.loads(make_request_to_bento_service(
-                    SERVICE_URL_PREDICT,
+                    SERVICE_URL_MAG_LOC,
                     earthquake_data,
                     time,
                     station_code
