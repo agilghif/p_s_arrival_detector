@@ -201,7 +201,7 @@ def recalculate(input_data: json) -> json:
     #  find another more precise formula for intersection of three spheres.
     points = []
     for i in range(len(station_latitudes)-1):
-        for j in range(i, len(station_latitudes)):
+        for j in range(i+1, len(station_latitudes)):
             # distance between two stations
             R = haversine(station_latitudes[i], station_longitudes[i], station_latitudes[j], station_longitudes[j])
 
