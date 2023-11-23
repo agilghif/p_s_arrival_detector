@@ -1,0 +1,12 @@
+service: "service:wave_arrival_detector"  # Same as the argument passed to bentoml
+labels:
+  owner: Agil
+  stage: dev
+include:
+  - "*.py"  # A pattern for matching which files to include in the bento
+python:
+   packages:  # Additional pip packages required by the service
+     - tensorflow
+     - numpy
+     - pydantic
+     - redis

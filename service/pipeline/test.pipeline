@@ -1,0 +1,6 @@
+convert_to_velocity(name="1")
+exponential_smoothing(0.995, name="2")
+square(name="3")
+add_channels(name="4")
+multi_exponential_smoothing([0.0, 0.1, 0.2],name="5")
+pairwise_ratio([0.0, 0.1, 0.2],name="6")
