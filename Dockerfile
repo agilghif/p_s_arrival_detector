@@ -17,7 +17,8 @@ RUN python ./savemodeltobento.py
 WORKDIR /app/service
 
 # Build BentoML service
-# RUN bentoml build
+RUN bentoml build
 
 # Run BentoML service
-CMD bentoml build && bentoml serve service:wave_arrival_detector
+# CMD bentoml build && bentoml serve service:wave_arrival_detector
+CMD bentoml serve service:wave_arrival_detector
