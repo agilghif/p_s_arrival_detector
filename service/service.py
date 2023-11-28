@@ -334,7 +334,7 @@ def pick_arrival(prediction: np.ndarray, threshold=0.5, window_size=settings.WIN
     return False, 0.0, 0
 
 
-def mean_without_outliers(arr, threshold=3.0):
+def mean_without_outliers(arr, threshold=5.0):
     median = np.median(arr)
     mad = np.median(np.abs(arr - median))
     mask = np.abs(arr - median) / mad < threshold
