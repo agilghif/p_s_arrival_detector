@@ -48,17 +48,17 @@ def restart(input_data: json) -> str:
     station_code: str = input_data.station_code
 
     # Insert station code
-    station_list: str
-    try:
-        station_list = redis_client.get(settings.REDIS_STATION_LIST_NAME).decode("UTF8")
-    except AssertionError:
-        redis_client.set(settings.REDIS_STATION_LIST_NAME, "")
-        station_list = ""
-    station_list: Set = set(station_list.split("~"))
-    station_list.add(station_code)
+    # station_list: str
+    # try:
+    #     station_list = redis_client.get(settings.REDIS_STATION_LIST_NAME).decode("UTF8")
+    # except AssertionError:
+    #     redis_client.set(settings.REDIS_STATION_LIST_NAME, "")
+    #     station_list = ""
+    # station_list: Set = set(station_list.split("~"))
+    # station_list.add(station_code)
 
     # Save station list name
-    redis_client.set(settings.REDIS_STATION_LIST_NAME, "~".join(station_list))
+    # redis_client.set(settings.REDIS_STATION_LIST_NAME, "~".join(station_list))
 
     # Create initial state
     redis_client.set(f"{station_code}~data_p", f"{0}~{datetime.min.strftime(settings.DATETIME_FORMAT)}~0")
@@ -75,7 +75,7 @@ def predict(input_data: json) -> json:
     x: np.ndarray = np.array(input_data.x)
     begin_time: datetime = datetime.strptime(input_data.begin_time, settings.DATETIME_FORMAT)
     station_code: str = input_data.station_code
-    pipeline: Pipeline
+
     if station_code in pipelines:
         pipeline = pipelines[station_code]
     else:
@@ -326,19 +326,12 @@ def pick_arrival(prediction: np.ndarray, threshold=0.5, window_size=settings.WIN
         deviation = argmax + ideal_deviation  # predicted deviation
 
         # Find mean while excluding outliers
-        mean_approx = first_detection_index - (window_size - round(mean_without_outliers(deviation)))
+        mean_approx = first_detection_index - (window_size - round(np.mean(deviation)))
 
         return True, mean_approx, len(detected_indices)
 
     # Case if no p wave detected
     return False, 0.0, 0
-
-
-def mean_without_outliers(arr, threshold=10.0):
-    median = np.median(arr)
-    mad = np.median(np.abs(arr - median))
-    mask = np.abs(arr - median) / mad < threshold
-    return np.mean(arr[mask])
 
 
 def haversine(lat1, lon1, lat2, lon2):

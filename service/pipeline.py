@@ -10,7 +10,7 @@ import settings
 
 
 class Pipeline:
-    def __init__(self, path: Path, warmup_duration: int, name: str = "untitled"):
+    def __init__(self, path: Path, init_duration: int, name: str = "untitled"):
         self._states: dict = {}
         self._pipeline: list = []
         self._names: Set[str] = set()
@@ -19,7 +19,7 @@ class Pipeline:
         self._name = name
         self._redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=settings.REDIS_DB_NUM)
 
-        self.warmup_duration = warmup_duration
+        self.init_duration = init_duration
         self._redis_client.set(self._name + "~init", pickle.dumps([]))
         self._redis_client.set(self._name + "~init_len", 0)
 
@@ -71,8 +71,12 @@ class Pipeline:
         init.append(x.dumps())
         init_len += len(x)
 
+        # Save state
+        self._redis_client.set(self._name + "~init", pickle.dumps(init))
+        self._redis_client.set(self._name + "~init_len", init_len)
+
         # Case if not enough data to perform inference
-        if init_len < self.warmup_duration:
+        if init_len < self.init_duration:
             raise PipelineHasNotBeenInitializedException
 
         # When there are enough data, end initialization state
@@ -82,12 +86,6 @@ class Pipeline:
         self._processing_function = self._process
 
         return x
-
-        # Save state
-        self._redis_client.set(self._name + "~init", pickle.dumps(init))
-        self._redis_client.set(self._name + "~init_len", init_len)
-
-        raise
 
 
 class PipelineHasNotBeenInitializedException(Exception):
