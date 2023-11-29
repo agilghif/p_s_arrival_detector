@@ -118,6 +118,7 @@ def predict(input_data: json) -> json:
     s_arrival_time: datetime = ""
     s_arr_id = None
     new_s_event = False
+    # prediction_s = np.array([])
     timer_s: datetime = datetime.strptime(
         redis_client.get(f"{station_code}~timer_s").decode("UTF8"), settings.DATETIME_FORMAT)
 
@@ -144,12 +145,14 @@ def predict(input_data: json) -> json:
         "p_arr_time": p_arrival_time.strftime(settings.DATETIME_FORMAT),
         "p_arr_id": f"{station_code}~{p_arr_id}",
         "new_p_event": new_p_event,
+        # "p_pred": prediction_p.tolist(),
 
         # S wave data
         "s_arr": s_arrival_detected,
         "s_arr_time": s_arrival_time.strftime(settings.DATETIME_FORMAT),
         "s_arr_id": f"{station_code}~{s_arr_id}",
         "new_s_event": new_s_event,
+        # "s_pred": prediction_s.tolist()
     }
 
     return json.dumps(output)

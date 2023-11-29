@@ -23,12 +23,14 @@ class OutputDataInference(BaseModel):
     p_arr_time: str
     p_arr_id: int
     new_p_event: bool
+    # p_pred: list
 
     # S wave data
     s_arr: bool
     s_arr_time: str
     s_arr_id: int
     new_s_event: bool
+    # s_pred: list
 
 
 # MAGNITUDE / LOCATION JSON STRUCTURE
