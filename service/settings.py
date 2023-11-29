@@ -1,5 +1,9 @@
 from datetime import timedelta
 from pathlib import Path
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 # Models
 P_MODEL_PATH = Path("pipeline/model_p_best.pipeline")
@@ -14,7 +18,7 @@ EARTHQUAKE_PICK_TIME_THRESHOLD = timedelta(seconds=6)
 S_WAVE_DETECTION_DURATION = timedelta(minutes=1)
 
 # Redis client
-REDIS_HOST = "localhost"
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = "6379"
 REDIS_DB_NUM = 0
 REDIS_STATION_LIST_NAME = "station_set"
